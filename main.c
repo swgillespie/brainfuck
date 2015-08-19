@@ -41,7 +41,7 @@ execute(struct program prog) {
   #define DISPATCH(prog, pc) do {                   \
     size_t new_pc = (pc);                           \
     op_value = (prog).ops[new_pc].op_value;         \
-    goto *dispatch_table[(prog).ops[new_pc].type]; \
+    goto *dispatch_table[(prog).ops[new_pc].type];  \
   } while(0)
 
   size_t pc = 0;
@@ -99,7 +99,7 @@ main(int argc, char **argv)
   // first - read the program from standard in
   // struct program prog = read_program(stdin);
   if (argc != 2) {
-    printf("usage: brainfuck <filename>\n");
+    printf("usage: %s <filename>\n", argv[0]);
     exit(1);
   }
   FILE *f = fopen(argv[1], "r");

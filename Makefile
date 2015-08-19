@@ -3,7 +3,7 @@ CC := clang
 INCLUDEDIR := .
 CFLAGS := -std=c99 -Wall -Werror -Wextra -pedantic -Wshadow -Wpointer-arith \
           -Wstrict-prototypes -Wmissing-prototypes -Wno-gnu-label-as-value  \
-					-I$(INCLUDEDIR) -O2 -ftrapv
+					-I$(INCLUDEDIR) -O2
 NASMFLAGS := -g
 LDFLAGS :=
 PROGNAME := brainfuck
