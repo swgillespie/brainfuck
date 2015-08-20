@@ -4,6 +4,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+extern int OPS_AGGREGATED;
+extern int ZERO_OPS_ELIMINATED;
+extern int MOVE_OPS_ELIMINATED;
+extern int SCAN_OPS_ELIMINATED;
+
 enum brainfuck_op_type {
   PLUS,
   MINUS,
@@ -15,7 +20,10 @@ enum brainfuck_op_type {
   OUTPUT,
   EXIT,
   ZERO,
-  NOP
+  NOP,
+  MOVE_LEFT,
+  MOVE_RIGHT,
+  SCAN
 };
 
 struct brainfuck_op {
@@ -50,5 +58,12 @@ bool mark_branches(struct program *prog);
 // Optimizes instruction patterns of the form [-] to simply set the
 // value at the memory pointer to zero.
 void zero_cell_optimization(struct program *prog);
+
+// Optimizes instruction patterns of the form [-<+>] or [->+<] to
+// MoveLeft and MoveRight, respectively.
+void move_gadget_detection(struct program *prog);
+
+// Optimizes instruction patterns of the form [>] or [<] to Scan.
+void scan_gadget_detection(struct program *prog);
 
 void destroy_program(struct program *prog);

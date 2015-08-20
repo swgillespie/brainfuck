@@ -1,25 +1,12 @@
 #include <stdio.h>
 #include <string.h>
+#include <alloca.h>
 #include "program.h"
 
 #define BRANCH_STACK_MAX 256
 #define MEMORY_SIZE 30000
 
-size_t find_next_branch_right(struct program*, size_t);
 void execute(struct program);
-
-size_t
-find_next_branch_right(struct program *prog, size_t pc) {
-  for (size_t i = pc; i < prog->length; i++) {
-    if (prog->ops[i].type == BRANCH_RIGHT) {
-      return i;
-    }
-  }
-
-  // if the program is valid, this branch will not be taken.
-  printf("Attempted to execute a non-valid program. Aborting\n");
-  abort();
-}
 
 void
 execute(struct program prog) {
@@ -34,61 +21,70 @@ execute(struct program prog) {
     &&output,
     &&exit,
     &&zero,
-    &&nop
+    &&nop,
+    &&move_left,
+    &&move_right,
+    &&scan
   };
-  int op_value;
 
-  #define DISPATCH(prog, pc) do {                   \
-    size_t new_pc = (pc);                           \
-    op_value = (prog).ops[new_pc].op_value;         \
-    goto *dispatch_table[(prog).ops[new_pc].type];  \
-  } while(0)
-
-  size_t pc = 0;
-  char *memory_ptr = alloca(MEMORY_SIZE);
+  #define DISPATCH(prog, ip) goto *dispatch_table[(ip)->type]
+  
+  struct brainfuck_op *ip = prog.ops;
+  int *memory_ptr = alloca(sizeof(int) * MEMORY_SIZE);
   memset(memory_ptr, 0, MEMORY_SIZE);
-  DISPATCH(prog, pc);
+  DISPATCH(prog, ip);
 plus:
-  *memory_ptr += op_value;
-  DISPATCH(prog, ++pc);
+  *memory_ptr += ip->op_value;
+  DISPATCH(prog, ++ip);
 minus:
-  *memory_ptr -= op_value;
-  DISPATCH(prog, ++pc);
+  *memory_ptr -= ip->op_value;
+  DISPATCH(prog, ++ip);
 shift_left:
-  memory_ptr -= op_value;
-  DISPATCH(prog, ++pc);
+  memory_ptr -= ip->op_value;
+  DISPATCH(prog, ++ip);
 shift_right:
-  memory_ptr += op_value;
-  DISPATCH(prog, ++pc);
+  memory_ptr += ip->op_value;
+  DISPATCH(prog, ++ip);
 branch_left:
   if (*memory_ptr == 0) {
-    pc = op_value;
+    ip += ip->op_value;
   }
-  DISPATCH(prog, ++pc);
+  DISPATCH(prog, ++ip);
 branch_right:
   if (*memory_ptr != 0) {
-    pc = op_value;
+    ip += ip->op_value;
   }
-  DISPATCH(prog, ++pc);
+  DISPATCH(prog, ++ip);
 output:
-  for (int i = 0; i < op_value; i++) {
+  for (int i = 0; i < ip->op_value; i++) {
     putchar(*memory_ptr);
     fflush(stdout);
   }
-  DISPATCH(prog, ++pc);
+  DISPATCH(prog, ++ip);
 input:
-  for (int i = 0; i < op_value; i++) {
+  for (int i = 0; i < ip->op_value; i++) {
     *memory_ptr = getchar();
   }
-  DISPATCH(prog, ++pc);
+  DISPATCH(prog, ++ip);
 exit:
   destroy_program(&prog);
   return;
 zero:
   *memory_ptr = 0;
-  DISPATCH(prog, ++pc);
+  DISPATCH(prog, ++ip);
 nop:
-  DISPATCH(prog, ++pc);
+  DISPATCH(prog, ++ip);
+move_left:
+  *(memory_ptr - ip->op_value) += *memory_ptr;
+  *memory_ptr = 0;
+  DISPATCH(prog, ++ip);
+move_right:
+  *(memory_ptr + ip->op_value) += *memory_ptr;
+  *memory_ptr = 0;
+  DISPATCH(prog, ++ip);
+scan:
+  while (*memory_ptr != 0) memory_ptr += ip->op_value;
+  DISPATCH(prog, ++ip);
 
   #undef DISPATCH
 }
@@ -116,8 +112,16 @@ main(int argc, char **argv)
   }
 
   zero_cell_optimization(&prog);
+  move_gadget_detection(&prog);
+  scan_gadget_detection(&prog);
 
   // next, execute it.
   execute(prog);
+
+  printf("\n");
+  printf("ops combined: %d\n", OPS_AGGREGATED);
+  printf("zero ops eliminated: %d\n", ZERO_OPS_ELIMINATED);
+  printf("move ops eliminated: %d\n", MOVE_OPS_ELIMINATED);
+  printf("scan ops eliminated: %d\n", SCAN_OPS_ELIMINATED);
   fclose(f);
 }

@@ -5,6 +5,11 @@
 #define SCALING_FACTOR 2
 #define BRANCH_STACK_SIZE 256
 
+int OPS_AGGREGATED = 0;
+int ZERO_OPS_ELIMINATED = 0;
+int MOVE_OPS_ELIMINATED = 0;
+int SCAN_OPS_ELIMINATED = 0;
+
 void
 debug_dump_program(struct program *prog) {
   for (size_t i = 0; i < prog->length; i++) {
@@ -66,6 +71,15 @@ debug_dump_program(struct program *prog) {
         break;
       case ZERO:
         printf("<ZERO>");
+        break;
+      case MOVE_LEFT:
+        printf("<MOVE LEFT %d>", op.op_value);
+        break;
+      case MOVE_RIGHT:
+        printf("<MOVE RIGHT %d>", op.op_value);
+        break;
+      case SCAN:
+        printf("<SCAN %d>", op.op_value);
         break;
     }
   }
@@ -162,6 +176,7 @@ aggregate_ops(struct program *prog) {
         continue;
       }
 
+      OPS_AGGREGATED++;
       count++;
     } else {
       // if we're looking at a type that's not the same as the last type
@@ -217,10 +232,10 @@ mark_branches(struct program *prog) {
         // for this branch_right, we want the branch offset to point to
         // the next instruction after the branch_left that is at the top
         // of the stack.
-        op->op_value = source_branch.branch_offset;
+        op->op_value = source_branch.branch_offset - i;
         // we also want the branch_left to point to the instruction
         // after this branch_right
-        source_branch.op->op_value = i;
+        source_branch.op->op_value = i - source_branch.branch_offset;
         break;
       default:
         continue;
@@ -237,8 +252,63 @@ zero_cell_optimization(struct program *prog) {
     if (prog->ops[i-1].type == BRANCH_LEFT &&
         prog->ops[i].type == MINUS &&
         prog->ops[i+1].type == BRANCH_RIGHT) {
+          ZERO_OPS_ELIMINATED++;
           prog->ops[i-1].type = NOP;
           prog->ops[i].type = ZERO;
+          prog->ops[i+1].type = NOP;
+        }
+  }
+}
+
+void
+move_gadget_detection(struct program *prog) {
+  for (size_t i = 2; i < prog->length - 3; i++) {
+    // i - 2 = [
+    // i - 1 = -
+    // i = < or >
+    // i + 1 = +
+    // i + 2 = > or <
+    // i + 3 = ]
+    if (prog->ops[i-2].type == BRANCH_LEFT &&
+        prog->ops[i-1].type == MINUS &&
+        (prog->ops[i].type == SHIFT_LEFT || prog->ops[i].type == SHIFT_RIGHT) &&
+        prog->ops[i+1].type == PLUS &&
+        (prog->ops[i+2].type == SHIFT_LEFT || prog->ops[i+2].type == SHIFT_RIGHT) &&
+        prog->ops[i+3].type == BRANCH_RIGHT) {
+          // couple things to check before we actually do this optimization
+          // ops i and i+2 must be opposite and they must be the same number
+          if (prog->ops[i].type == prog->ops[i+2].type) {
+            continue;
+          }
+
+          if (prog->ops[i].op_value != prog->ops[i+2].op_value) {
+            continue;
+          }
+
+          // otherwise - let's do it.
+          MOVE_OPS_ELIMINATED++;
+          prog->ops[i-2].type = NOP;
+          prog->ops[i-1].type = NOP;
+          prog->ops[i].type = prog->ops[i].type == SHIFT_LEFT ? MOVE_LEFT : MOVE_RIGHT;
+          prog->ops[i+1].type = NOP;
+          prog->ops[i+2].type = NOP;
+          prog->ops[i+3].type = NOP;
+        }
+  }
+}
+
+void
+scan_gadget_detection(struct program *prog) {
+  for (size_t i = 1; i < prog->length - 1; i++) {
+    if (prog->ops[i-1].type == BRANCH_LEFT &&
+        (prog->ops[i].type == SHIFT_LEFT || prog->ops[i].type == SHIFT_RIGHT) &&
+        prog->ops[i+1].type == BRANCH_RIGHT) {
+          SCAN_OPS_ELIMINATED++;
+          prog->ops[i-1].type = NOP;
+          if (prog->ops[i].type == SHIFT_LEFT) {
+            prog->ops[i].op_value *= -1;
+          }
+          prog->ops[i].type = SCAN;
           prog->ops[i+1].type = NOP;
         }
   }
