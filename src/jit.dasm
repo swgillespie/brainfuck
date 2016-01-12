@@ -1,0 +1,175 @@
+#include <stdio.h>
+#include <sys/mman.h>
+#include <stdint.h>
+#include "luajit-2.0/dynasm/dasm_proto.h"
+#include "luajit-2.0/dynasm/dasm_x86.h"
+#include "jit.h"
+
+#define MAX_BRANCH_DEPTH 256
+
+|.arch x64
+
+// the memory pointer lives in rbx
+|.define MemPtr, rbx
+
+// for x64, the first argument is passed as rdi
+|.define FirstArg, rdi
+|.macro prologue
+  // assumption - the mem pointer lives in a callee-saved register.
+  | push MemPtr
+  | mov MemPtr, FirstArg
+|.endmacro
+|.macro epilogue
+  // restore the memory pointer register and return
+  | pop MemPtr
+  | ret
+|.endmacro
+|.macro longcall, target
+  // calls over 2^32 away from the current PC require a call through a register.
+  // since putchar and getchar are from libc, they generally end up with pretty
+  // low addresses and require this.
+  | mov64 rax, (uintptr_t)target
+  | call rax
+|.endmacro
+
+static size_t
+link_and_encode(dasm_State** d) {
+  size_t size;
+  dasm_link(d, &size);
+  void* buffer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  dasm_encode(d, buffer);
+  mprotect(buffer, size, PROT_READ | PROT_EXEC);
+  return size;
+}
+
+struct bf_func
+jit_compile(struct program* prog) {
+  // initialize our jit state
+  dasm_State* d;
+  unsigned int npc = 8;
+  unsigned int nextpc = 0;
+
+  |.section code
+  |.globals lbl_
+  dasm_init(&d, DASM_MAXSECTION);
+  void* labels[lbl__MAX];
+  unsigned int loops[MAX_BRANCH_DEPTH];
+  unsigned int nloops = 0;
+  dasm_setupglobal(&d, labels, lbl__MAX);
+
+  |.actionlist bf_actions
+  dasm_setup(&d, bf_actions);
+  dasm_growpc(&d, npc);
+
+  dasm_State** Dst = &d;
+  |.code
+  |->bf_main:
+  | prologue
+  for (size_t i = 0; i < prog->length; i++) {
+    switch (prog->ops[i].type) {
+      case PLUS:
+        | add byte [MemPtr], prog->ops[i].op_value
+        break;
+      case MINUS:
+        | sub byte [MemPtr], prog->ops[i].op_value
+        break;
+      case SHIFT_LEFT:
+        | sub MemPtr, prog->ops[i].op_value
+        break;
+      case SHIFT_RIGHT:
+        | add MemPtr, prog->ops[i].op_value
+        break;
+      case BRANCH_LEFT:
+        if (nextpc == npc) {
+          npc *= 2;
+          dasm_growpc(&d, npc);
+        }
+        | cmp byte [MemPtr], 0
+        | jz =>nextpc+1
+        | =>nextpc:
+        loops[nloops++] = nextpc;
+        nextpc += 2;
+        break;
+      case BRANCH_RIGHT:
+        --nloops;
+        | cmp byte [MemPtr], 0
+        | jnz => loops[nloops]
+        | =>loops[nloops]+1:
+        break;
+      case INPUT:
+        | mov r15, prog->ops[i].op_value
+        |1:
+        | cmp r15, 0
+        | jz >2
+        | dec r15
+        | longcall &getchar
+        | mov byte [MemPtr], al
+        | jmp <1
+        |2:
+        break;
+      case OUTPUT:
+        | mov r15, prog->ops[i].op_value
+        |1:
+        | cmp r15, 0
+        | jz >2
+        | dec r15
+        | mov FirstArg, [MemPtr]
+        | longcall &putchar
+        | jmp <1
+        |2:
+        break;
+      case EXIT:
+        | epilogue
+        break;
+      case ZERO:
+        | mov byte [MemPtr], 0
+        break;
+      case NOP:
+        break;
+      case MOVE_LEFT:
+        | movzx rax, byte [MemPtr]
+        | add byte [MemPtr - prog->ops[i].op_value], al
+        | mov byte [MemPtr], 0
+        break;
+      case MOVE_RIGHT:
+        | movzx rax, byte [MemPtr]
+        | add byte [MemPtr + prog->ops[i].op_value], al
+        | mov byte [MemPtr], 0
+        break;
+      case SCAN:
+        //| int3
+        | cmp byte [MemPtr], 0
+        if (prog->ops[i].op_value > 0) {
+          | lea rax, [MemPtr + prog->ops[i].op_value]
+        } else {
+          | lea rax, [MemPtr - (-prog->ops[i].op_value)]
+        }
+        | je >2
+        |1:
+        if (prog->ops[i].op_value > 0) {
+          | mov MemPtr, rax
+          | add rax, prog->ops[i].op_value
+          | cmp byte [rax - prog->ops[i].op_value], 0
+        } else {
+          | mov MemPtr, rax
+          | sub rax, -prog->ops[i].op_value
+          | cmp byte [rax + (-prog->ops[i].op_value)], 0
+        }
+        | jne <1
+        |2:
+        break;
+    }
+  }
+
+  size_t size = link_and_encode(&d);
+  dasm_free(&d);
+  bf_main_func func = (bf_main_func)labels[lbl_bf_main];
+  struct bf_func ret;
+  ret.func = func;
+  ret.size = size;
+  return ret;
+}
+
+void jit_free(struct bf_func* func) {
+  munmap(func->func, func->size);
+}

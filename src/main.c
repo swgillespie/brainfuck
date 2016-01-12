@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <alloca.h>
+#include <stdbool.h>
 #include "program.h"
+#include "jit.h"
 
 #define BRANCH_STACK_MAX 256
 #define MEMORY_SIZE 30000
@@ -28,7 +30,7 @@ execute(struct program prog) {
   };
 
   #define DISPATCH(prog, ip) goto *dispatch_table[(ip)->type]
-  
+
   struct brainfuck_op *ip = prog.ops;
   int *memory_ptr = alloca(sizeof(int) * MEMORY_SIZE);
   memset(memory_ptr, 0, MEMORY_SIZE);
@@ -113,15 +115,28 @@ main(int argc, char **argv)
 
   zero_cell_optimization(&prog);
   move_gadget_detection(&prog);
-  scan_gadget_detection(&prog);
 
-  // next, execute it.
+  // next: execute it
+#ifdef FEATURE_JIT
+  struct bf_func main_func = jit_compile(&prog);
+  char* memory_ptr = malloc(sizeof(char) * MEMORY_SIZE);
+  memset(memory_ptr, 0, sizeof(char) * MEMORY_SIZE);
+  main_func.func(memory_ptr);
+  jit_free(&main_func);
+  free(memory_ptr);
+#else
+  // this optimization is crucial for the interpreter and
+  // actually hurts the jit, so we only do it for the interpreter.
+  scan_gadget_detection(&prog);
   execute(prog);
+#endif
 
   printf("\n");
+#ifdef DEBUG
   printf("ops combined: %d\n", OPS_AGGREGATED);
   printf("zero ops eliminated: %d\n", ZERO_OPS_ELIMINATED);
   printf("move ops eliminated: %d\n", MOVE_OPS_ELIMINATED);
   printf("scan ops eliminated: %d\n", SCAN_OPS_ELIMINATED);
+#endif
   fclose(f);
 }

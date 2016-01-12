@@ -149,6 +149,7 @@ read_program(FILE *stream) {
 
   struct brainfuck_op op;
   op.type = EXIT;
+  op.op_value = 0;
   insert_op(&scanned_program, op);
   return scanned_program;
 }
@@ -196,6 +197,7 @@ aggregate_ops(struct program *prog) {
     struct brainfuck_op op;
     op.type = last_seen_type;
     op.op_value = count;
+    insert_op(&aggregated_program, op);
   }
 
   // stick a terminator onto the new program
