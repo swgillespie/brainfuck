@@ -5,8 +5,10 @@ LUAJIT_DIR := luajit-2.0
 MINILUA := minilua
 
 JIT_DASM := src/jit.dasm
-JIT_C := src/jit.c
+JIT_C := src/jit.temp.c
 JIT_O := src/jit.o
+
+FORMAT_STR := "[+] %4s %-20s -> %s\n"
 
 CFLAGS := -std=gnu99 -Wall -Wextra -Werror -Wshadow -Wpointer-arith \
           -Wstrict-prototypes -Wmissing-prototypes \
@@ -14,19 +16,24 @@ CFLAGS := -std=gnu99 -Wall -Wextra -Werror -Wshadow -Wpointer-arith \
 LDFLAGS :=
 PROGNAME := brainfuck
 
-
 SOURCES := $(shell find src/ -name "*.c")
+DASM_SOURCES := $(shell find src/ -name "*.dasm")
 OBJECTS := $(SOURCES:.c=.o)
+DASM_OBJECTS := $(DASM_SOURCES:.dasm=.o)
 
 jit: CFLAGS += -DFEATURE_JIT -O2
+jit: SOURCES += $(DASM_SOURCES)
+jit: OBJECTS += $(DASM_OBJECTS)
 jit: $(MINILUA) $(OBJECTS) $(JIT_O)
 jit:
-	$(CC) $(LDFLAGS) $(OBJECTS) $(JIT_O) -o $(PROGNAME)
+	$(CC) $(LDFLAGS) $(OBJECTS) -o $(PROGNAME)
 
 jit_debug: CFLAGS += -DFEATURE_JIT -g -DDEBUG
+jit_debug: SOURCES += $(DASM_SOURCES)
+jit_debug: OBJECTS += $(DASM_OBJECTS)
 jit_debug: $(MINILUA) $(OBJECTS) $(JIT_O)
 jit_debug:
-	$(CC) $(LDFLAGS) $(OBJECTS) $(JIT_O) -o $(PROGNAME)
+	$(CC) $(LDFLAGS) $(OBJECTS) -o $(PROGNAME)
 
 interpreter: CFLAGS += -O2
 interpreter: $(PROGNAME)
@@ -40,16 +47,15 @@ $(MINILUA):
 $(PROGNAME): $(OBJECTS)
 	$(CC) $(LDFLAGS) $(OBJECTS) -o $(PROGNAME)
 
-$(JIT_C): $(MINILUA) $(JIT_DASM)
+$(JIT_O): $(MINILUA) $(JIT_DASM)
 	./$(MINILUA) luajit-2.0/dynasm/dynasm.lua -o $(JIT_C) -D X64 $(JIT_DASM)
-
-$(JIT_O): $(JIT_C)
+	$(CC) $(CFLAGS) -c -o $(JIT_O) $(JIT_C)
+	rm -f $(JIT_C)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f src/jit.c
 	rm -f $(MINILUA)
 	rm -f $(PROGNAME)
 	rm -f $(OBJECTS)

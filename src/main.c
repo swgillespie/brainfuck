@@ -2,11 +2,15 @@
 #include <string.h>
 #include <alloca.h>
 #include <stdbool.h>
+#include <signal.h>
 #include "program.h"
 #include "jit.h"
 
+#define UNUSED(param) ((void)param)
 #define BRANCH_STACK_MAX 256
-#define MEMORY_SIZE 30000
+
+// Should be enough memory to run the biggest brainfuck programs
+#define MEMORY_SIZE (1 << 16)
 
 void execute(struct program);
 
@@ -119,11 +123,12 @@ main(int argc, char **argv)
   // next: execute it
 #ifdef FEATURE_JIT
   struct bf_func main_func = jit_compile(&prog);
-  char* memory_ptr = malloc(sizeof(char) * MEMORY_SIZE);
+  char *memory_ptr = malloc(sizeof(char) * MEMORY_SIZE);
   memset(memory_ptr, 0, sizeof(char) * MEMORY_SIZE);
   main_func.func(memory_ptr);
   jit_free(&main_func);
   free(memory_ptr);
+  destroy_program(&prog);
 #else
   // this optimization is crucial for the interpreter and
   // actually hurts the jit, so we only do it for the interpreter.

@@ -264,6 +264,12 @@ zero_cell_optimization(struct program *prog) {
 
 void
 move_gadget_detection(struct program *prog) {
+  if (prog->length < 3) {
+    // wary of possible unsigned integer underflow during
+    // the for loop condition;
+    return;
+  }
+  
   for (size_t i = 2; i < prog->length - 3; i++) {
     // i - 2 = [
     // i - 1 = -
