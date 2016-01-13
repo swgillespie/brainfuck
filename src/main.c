@@ -9,8 +9,14 @@
 #define UNUSED(param) ((void)param)
 #define BRANCH_STACK_MAX 256
 
-// Should be enough memory to run the biggest brainfuck programs
-#define MEMORY_SIZE (1 << 16)
+// Should be enough memory to run the biggest brainfuck programs.
+// More memory for the jit because 1) the cells are not integers and
+// 2) the jit can do things faster and thus can handle more complex programs.
+#ifdef FEATURE_JIT
+  #define MEMORY_SIZE (1 << 16)
+#else
+  #define MEMORY_SIZE 30000
+#endif
 
 void execute(struct program);
 
@@ -36,7 +42,7 @@ execute(struct program prog) {
   #define DISPATCH(prog, ip) goto *dispatch_table[(ip)->type]
 
   struct brainfuck_op *ip = prog.ops;
-  int *memory_ptr = alloca(sizeof(int) * MEMORY_SIZE);
+  int *memory_ptr = malloc(sizeof(int) * MEMORY_SIZE);
   memset(memory_ptr, 0, MEMORY_SIZE);
   DISPATCH(prog, ip);
 plus:
